@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Face Recognition Attendance</title>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  <style>
+    body {
+      font-family: Arial;
+      text-align: center;
+      margin-top: 20px;
+    }
+    /* Changed video to div */
+    #webcam {
+      width: 300px;
+      height: 300px;
+      margin: 0 auto 10px;
+      border: 2px solid #444;
+      border-radius: 10px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      margin-top: 10px;
+    }
+    #result {
+      font-size: 18px;
+      font-weight: bold;
+      color: green;
+    }
+  </style>
+</head>
+<body>
+  <h1>Face Recognition Attendance System</h1>
+  <!-- Replaced <video> with <div> for webcam -->
+  <div id="webcam"></div>
+  <div><button id="startBtn">Start Recognition</button></div>
+  <div id="result">Waiting...</div>
+
+  <script>
+    // Model files path (relative)
+    const MODEL_URL = "./";
+    // Your deployed Google Apps Script URL here (replace below with your actual URL)
+    const SHEET_URL = "https://script.google.com/macros/s/AKfycbzW3RK9sGytI9EUNygtsxmh9f6PekXJnYxCyWRs0JtE9DKVXfqEr5a1ZpiPWBtp6kvP/exec";
+
+    let model, webcam, isPredicting = false;
+
+    const resultElement = document.getElementById("result");
+    const startBtn = document.getElementById("startBtn");
+
+    async function init() {
+      const modelURL = MODEL_URL + "model.json";
+      const metadataURL = MODEL_URL + "metadata.json";
+
+      model = await tmImage.load(modelURL, metadataURL);
+      webcam = new tmImage.Webcam(300, 300, true);
+      await webcam.setup();
+      await webcam.play();
+      document.getElementById("webcam").appendChild(webcam.canvas);
+      isPredicting = true;
+      window.requestAnimationFrame(loop);
+    }
+
+    async function loop() {
+      if (isPredicting) {
+        webcam.update();
+        await predict();
+        window.requestAnimationFrame(loop);
+      }
+    }
+
+    async function predict() {
+      const prediction = await model.predict(webcam.canvas);
+      let highestProb = 0;
+      let predictedClass = "";
+
+      prediction.forEach(p => {
+        if (p.probability > highestProb) {
+          highestProb = p.probability;
+          predictedClass = p.className;
+        }
+      });
+
+      if (highestProb > 0.85) {
+        resultElement.innerText = `Detected: ${predictedClass}`;
+
+        fetch(SHEET_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            name: predictedClass,
+            timestamp: new Date().toLocaleString()
+          })
+        }).catch(err => {
+          console.error("❌ Error sending data:", err);
+        });
+
+      } else {
+        resultElement.innerText = "No confident detection.";
+      }
+    }
+
+    startBtn.addEventListener("click", () => {
+      if (!isPredicting) {
+        init();
+      }
+    });
+  </script>
+</body>
+</html>
