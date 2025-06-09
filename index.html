@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Face Recognition Attendance</title>
+  
+  <!-- Load TensorFlow.js first -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.8.0/dist/tf.min.js"></script>
+  
+  <!-- Then load Teachable Machine image library -->
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin-top: 20px;
+    }
+    #webcam canvas {
+      width: 300px;
+      height: 300px;
+      border: 2px solid #444;
+      border-radius: 10px;
+      margin-bottom: 10px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+    #result {
+      font-size: 18px;
+      font-weight: bold;
+      color: green;
+      margin-top: 15px;
+      min-height: 24px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Face Recognition Attendance System</h1>
+  
+  <div id="webcam"></div>
+  <div><button id="startBtn">Start Recognition</button></div>
+  <div id="result">Waiting...</div>
+
+  <script>
+    // Model files location - assuming model.json and metadata.json are in same folder as this HTML
+    const MODEL_URL = "./";
+
+    // Your NEW deployed Google Apps Script Web App URL here
+    const SHEET_URL = "https://script.google.com/macros/s/AKfycby8RcLFtxG0i1z3lCcI8grJ132ugWSUKowvU1ryklMivwT8gbWyHPRBcbGMQtNH68Xr/exec";
+
+    let model, webcam, isPredicting = false;
+
+    const resultElement = document.getElementById("result");
+    const startBtn = document.getElementById("startBtn");
+
+    async function init() {
+      try {
+        const modelURL = MODEL_URL + "model.json";
+        const metadataURL = MODEL_URL + "metadata.json";
+
+        // Load the Teachable Machine model and metadata
+        model = await tmImage.load(modelURL, metadataURL);
+
+        // Setup webcam
+        webcam = new tmImage.Webcam(300, 300, true);
+        await webcam.setup();
+        await webcam.play();
+
+        // Append webcam canvas to the page
+        const webcamContainer = document.getElementById("webcam");
+        webcamContainer.innerHTML = "";  // clear if anything present
+        webcamContainer.appendChild(webcam.canvas);
+
+        isPredicting = true;
+        resultElement.innerText = "Recognition started. Please look at the camera.";
+
+        // Start the prediction loop
+        window.requestAnimationFrame(loop);
+
+      } catch (error) {
+        console.error("❌ Error initializing model or webcam:", error);
+        resultElement.innerText = "Error initializing model or webcam.";
+      }
+    }
+
+    async function loop() {
+      if (isPredicting) {
+        webcam.update();
+        await predict();
+        window.requestAnimationFrame(loop);
+      }
+    }
+
+    async function predict() {
+      try {
+        const prediction = await model.predict(webcam.canvas);
+        let highestProb = 0;
+        let predictedClass = "";
+
+        prediction.forEach(p => {
+          if (p.probability > highestProb) {
+            highestProb = p.probability;
+            predictedClass = p.className;
+          }
+        });
+
+        if (highestProb > 0.85) {
+          resultElement.innerText = `Detected: ${predictedClass}`;
+
+          // Send data to Google Sheets via your Google Apps Script Web App
+          fetch(SHEET_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              name: predictedClass,
+              timestamp: new Date().toISOString()
+            }),
+          }).catch(err => {
+            console.error("❌ Error sending data:", err);
+          });
+
+        } else {
+          resultElement.innerText = "No confident detection.";
+        }
+      } catch (error) {
+        console.error("❌ Prediction error:", error);
+        resultElement.innerText = "Prediction error.";
+      }
+    }
+
+    startBtn.addEventListener("click", () => {
+      if (!isPredicting) {
+        init();
+      }
+    });
+  </script>
+</body>
+</html>
